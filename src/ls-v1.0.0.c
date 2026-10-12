@@ -1,320 +1,140 @@
-/*
-* Programming Assignment 02: ls
-* Version 1.1.0: long listing format (-l)
-*/
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <dirent.h>
 #include <string.h>
-#include <errno.h>
-#include <limits.h>
-#include <time.h>
-#include <pwd.h>
-#include <grp.h>
+#include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <sys/ioctl.h>
+#include <getopt.h>
 
-#define SPACING 2   /* spaces between columns */
-
-extern int errno;
-
-void do_ls(const char *dir);
-void do_ls_long(const char *dir);
-void mode_to_string(mode_t mode, char *str);
-
-int main(int argc, char *argv[])
-{
-    int long_flag = 0;
-    int opt;
-
-    while ((opt = getopt(argc, argv, "l")) != -1)
-    {
-        switch (opt)
-        {
-        case 'l':
-            long_flag = 1;
-            break;
-        default:
-            fprintf(stderr, "Usage: %s [-l] [dir...]\n", argv[0]);
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    if (optind == argc)
-    {
-        if (long_flag)
-            do_ls_long(".");
-        else
-            do_ls(".");
-    }
-    else
-    {
-        for (int i = optind; i < argc; i++)
-        {
-            printf("Directory listing of %s : \n", argv[i]);
-            if (long_flag)
-                do_ls_long(argv[i]);
-            else
-                do_ls(argv[i]);
-            puts("");
-        }
-    }
-    return 0;
-}
-
-/* Terminal width via ioctl(TIOCGWINSZ); fall back to 80 if unavailable */
-static int get_terminal_width(void)
-{
-    struct winsize ws;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
-        return 80;
-    return ws.ws_col;
-}
-
-/* Print names in "down then across" order.
- * Item in row r, column c is names[r + c * rows]. */
-static void print_columns(char **names, size_t count, size_t maxlen)
-{
-    int term_width = get_terminal_width();
-    size_t col_width = maxlen + SPACING;
-
-    size_t cols = (size_t)term_width / col_width;
-    if (cols == 0)
-        cols = 1;                            /* very long name */
-    size_t rows = (count + cols - 1) / cols; /* ceiling division */
-
-    for (size_t r = 0; r < rows; r++)
-    {
-        for (size_t c = 0; c < cols; c++)
-        {
-            size_t idx = r + c * rows;
-            if (idx >= count)
-                break;
-
-            /* pad only if another item follows in this row */
-            if (idx + rows < count)
-                printf("%-*s", (int)col_width, names[idx]);
-            else
-                printf("%s", names[idx]);
-        }
-        printf("\n");
-    }
-}
-
-void do_ls(const char *dir)
-{
-    DIR *dp = opendir(dir);
-    if (dp == NULL)
-    {
-        fprintf(stderr, "Cannot open directory : %s\n", dir);
+void do_ls(const char *dirname, int long_format, int horizontal_format) {
+    DIR *dir = opendir(dirname);
+    if (dir == NULL) {
+        perror("ls: cannot open directory");
         return;
     }
 
-    char **names = NULL;   /* dynamic array of filenames */
-    size_t count = 0;      /* how many names are stored */
-    size_t capacity = 0;   /* how many slots are allocated */
-    size_t maxlen = 0;     /* length of the longest filename */
-    int failed = 0;
     struct dirent *entry;
+    int count = 0;
+    int capacity = 10;
+    
+    // Task 2: Dynamically allocate array of strings to gather all filenames
+    char **filenames = malloc(capacity * sizeof(char *));
+    if (filenames == NULL) {
+        perror("malloc failed");
+        closedir(dir);
+        return;
+    }
 
-    errno = 0;
-    while ((entry = readdir(dp)) != NULL)
-    {
-        if (entry->d_name[0] == '.')
-            continue;
+    size_t max_len = 0;
 
-        /* array full: double its capacity (start with 16 slots) */
-        if (count == capacity)
-        {
-            size_t newcap = capacity ? capacity * 2 : 16;
-            char **tmp = realloc(names, newcap * sizeof(char *));
-            if (tmp == NULL)
-            {
+    // Read all directory entries and track max length
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') {
+            continue; // Skip hidden files for now
+        }
+
+        if (count >= capacity) {
+            capacity *= 2;
+            char **temp = realloc(filenames, capacity * sizeof(char *));
+            if (temp == NULL) {
                 perror("realloc failed");
-                failed = 1;
-                break;
+                for (int i = 0; i < count; i++) {
+                    free(filenames[i]);
+                }
+                free(filenames);
+                closedir(dir);
+                return;
             }
-            names = tmp;
-            capacity = newcap;
+            filenames = temp;
         }
 
-        /* store a private copy of the name */
-        names[count] = strdup(entry->d_name);
-        if (names[count] == NULL)
-        {
-            perror("strdup failed");
-            failed = 1;
-            break;
+        filenames[count] = strdup(entry->d_name);
+        
+        size_t current_len = strlen(entry->d_name);
+        if (current_len > max_len) {
+            max_len = current_len;
         }
 
-        /* track the longest filename */
-        size_t len = strlen(names[count]);
-        if (len > maxlen)
-            maxlen = len;
         count++;
     }
 
-    if (!failed && errno != 0)
-        perror("readdir failed");
+    closedir(dir);
 
-    closedir(dp);
-
-    if (count > 0)
-        print_columns(names, count, maxlen);
-
-    for (size_t i = 0; i < count; i++)
-        free(names[i]);
-    free(names);
-}
-
-/* Convert st_mode into a string like "drwxr-xr-x" (str must hold 11 bytes) */
-void mode_to_string(mode_t mode, char *str)
-{
-    /* 1) file type: first character */
-    if (S_ISREG(mode))       str[0] = '-';
-    else if (S_ISDIR(mode))  str[0] = 'd';
-    else if (S_ISLNK(mode))  str[0] = 'l';
-    else if (S_ISCHR(mode))  str[0] = 'c';
-    else if (S_ISBLK(mode))  str[0] = 'b';
-    else if (S_ISFIFO(mode)) str[0] = 'p';
-    else if (S_ISSOCK(mode)) str[0] = 's';
-    else                     str[0] = '?';
-
-    /* 2) permission bits: owner, group, others */
-    str[1] = (mode & S_IRUSR) ? 'r' : '-';
-    str[2] = (mode & S_IWUSR) ? 'w' : '-';
-    str[3] = (mode & S_IXUSR) ? 'x' : '-';
-    str[4] = (mode & S_IRGRP) ? 'r' : '-';
-    str[5] = (mode & S_IWGRP) ? 'w' : '-';
-    str[6] = (mode & S_IXGRP) ? 'x' : '-';
-    str[7] = (mode & S_IROTH) ? 'r' : '-';
-    str[8] = (mode & S_IWOTH) ? 'w' : '-';
-    str[9] = (mode & S_IXOTH) ? 'x' : '-';
-
-    /* 3) special bits: setuid, setgid, sticky */
-    if (mode & S_ISUID) str[3] = (mode & S_IXUSR) ? 's' : 'S';
-    if (mode & S_ISGID) str[6] = (mode & S_IXGRP) ? 's' : 'S';
-    if (mode & S_ISVTX) str[9] = (mode & S_IXOTH) ? 't' : 'T';
-
-    str[10] = '\0';
-}
-
-/* Resolve uid/gid to names; fall back to the number if no name exists */
-static const char *get_user(uid_t uid, char *buf, size_t n)
-{
-    struct passwd *pw = getpwuid(uid);
-    if (pw != NULL)
-        return pw->pw_name;
-    snprintf(buf, n, "%u", (unsigned)uid);
-    return buf;
-}
-
-static const char *get_group(gid_t gid, char *buf, size_t n)
-{
-    struct group *gr = getgrgid(gid);
-    if (gr != NULL)
-        return gr->gr_name;
-    snprintf(buf, n, "%u", (unsigned)gid);
-    return buf;
-}
-
-static int num_width(long long v)
-{
-    return snprintf(NULL, 0, "%lld", v);
-}
-
-void do_ls_long(const char *dir)
-{
-    DIR *dp = opendir(dir);
-    if (dp == NULL)
-    {
-        fprintf(stderr, "Cannot open directory : %s\n", dir);
+    if (count == 0) {
+        free(filenames);
         return;
     }
 
-    struct dirent *entry;
-    struct stat st;
-    char path[PATH_MAX];
-    char ubuf[32], gbuf[32];
-    long long total = 0;
-    int w_link = 0, w_user = 0, w_group = 0, w_size = 0;
-    int w;
-
-    /* ---- Pass 1: find column widths and the "total" blocks ---- */
-    errno = 0;
-    while ((entry = readdir(dp)) != NULL)
-    {
-        if (entry->d_name[0] == '.')
-            continue;
-        snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
-        if (lstat(path, &st) == -1)
-        {
-            perror(path);
-            continue;
+    // Task 3: Calculate Column Layout
+    int terminal_width = 80; // Default fallback width
+    struct winsize w;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0) {
+        if (w.ws_col > 0) {
+            terminal_width = w.ws_col;
         }
-        total += st.st_blocks;
-
-        w = num_width(st.st_nlink);
-        if (w > w_link) w_link = w;
-        w = (int)strlen(get_user(st.st_uid, ubuf, sizeof(ubuf)));
-        if (w > w_user) w_user = w;
-        w = (int)strlen(get_group(st.st_gid, gbuf, sizeof(gbuf)));
-        if (w > w_group) w_group = w;
-        w = num_width(st.st_size);
-        if (w > w_size) w_size = w;
     }
-    if (errno != 0)
-        perror("readdir failed");
 
-    /* st_blocks is in 512-byte units, ls prints 1K blocks */
-    printf("total %lld\n", total / 2);
+    int spacing = 2; // Spacing between columns
+    int col_width = max_len + spacing;
+    int num_cols = terminal_width / col_width;
+    if (num_cols < 1) {
+        num_cols = 1;
+    }
 
-    /* ---- Pass 2: print every entry ---- */
-    rewinddir(dp);
-    time_t now = time(NULL);
-    while ((entry = readdir(dp)) != NULL)
-    {
-        if (entry->d_name[0] == '.')
-            continue;
-        snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
-        if (lstat(path, &st) == -1)
-            continue;
+    int num_rows = (count + num_cols - 1) / num_cols;
 
-        char perms[11];
-        mode_to_string(st.st_mode, perms);
-
-        /* ctime() gives "Mon Oct 12 02:59:11 2026\n" */
-        char *t = ctime(&st.st_mtime);
-        char timebuf[32];
-        if (now - st.st_mtime > 15778476 || st.st_mtime > now)
-            snprintf(timebuf, sizeof(timebuf), "%.6s  %.4s", t + 4, t + 20);
-        else
-            snprintf(timebuf, sizeof(timebuf), "%.12s", t + 4);
-
-        printf("%s %*lu %-*s %-*s %*lld %s %s",
-               perms,
-               w_link, (unsigned long)st.st_nlink,
-               w_user, get_user(st.st_uid, ubuf, sizeof(ubuf)),
-               w_group, get_group(st.st_gid, gbuf, sizeof(gbuf)),
-               w_size, (long long)st.st_size,
-               timebuf,
-               entry->d_name);
-
-        /* symbolic link: show "-> target" */
-        if (S_ISLNK(st.st_mode))
-        {
-            char target[PATH_MAX];
-            ssize_t len = readlink(path, target, sizeof(target) - 1);
-            if (len != -1)
-            {
-                target[len] = '\0';
-                printf(" -> %s", target);
+    // Task 4: Implement "Down Then Across" Printing
+    for (int r = 0; r < num_rows; r++) {
+        for (int c = 0; c < num_cols; c++) {
+            int index = c * num_rows + r;
+            if (index < count) {
+                if (c == num_cols - 1) {
+                    // Last column on the row doesn't need trailing padding
+                    printf("%s", filenames[index]);
+                } else {
+                    printf("%-*s", col_width, filenames[index]);
+                }
             }
         }
         printf("\n");
     }
 
-    closedir(dp);
+    // Clean up allocated memory
+    for (int i = 0; i < count; i++) {
+        free(filenames[i]);
+    }
+    free(filenames);
+}
+
+int main(int argc, char *argv[]) {
+    int opt;
+    int long_format = 0;
+    int horizontal_format = 0;
+
+    while ((opt = getopt(argc, argv, "lx")) != -1) {
+        switch (opt) {
+            case 'l':
+                long_format = 1;
+                break;
+            case 'x':
+                horizontal_format = 1;
+                break;
+            default:
+                fprintf(stderr, "Usage: %s [-l] [-x] [file...]\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
+
+    if (optind >= argc) {
+        do_ls(".", long_format, horizontal_format);
+    } else {
+        for (int i = optind; i < argc; i++) {
+            printf("%s:\n", argv[i]);
+            do_ls(argv[i], long_format, horizontal_format);
+        }
+    }
+
+    return 0;
 }
