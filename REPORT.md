@@ -19,3 +19,17 @@ make
 ./bin/ls
 ./bin/ls -l
 ./bin/ls -x
+
+## 4. Feature-5: Alphabetical Sort (v1.4.0)
+
+### Q1: Why read all directory entries into memory before sorting? What are the drawbacks for directories with millions of files?
+- **Necessity:** Standard sorting algorithms (like `qsort()`) require random access to the dataset (elements in contiguous memory or pointers pointing to them) so elements can be compared and swapped efficiently. A directory stream (`DIR*`) read via `readdir()\ ettiği
+iha stream-based hai, jismein ek waqt mein sirf ek entry milti hai aur random access mumkin nahi hota. Isliye, saari entries ko dynamic array mein load karna zaroori hai.
+- **Drawbacks for millions of files:** 
+  1. **High Memory Consumption:** Storing millions of file names and metadata pointers in RAM can exhaust available memory (RAM overflow/OOM).
+  2. **Performance Bottleneck:** Allocating and reallocating memory dynamically for millions of items can slow down execution.
+
+### Q2: Purpose and signature of the comparison function required by qsort()
+- **Purpose & Signature:** The signature is `int compare_strings(const void *a, const void *b)`. Its purpose is to provide `qsort()` with custom logic on how to compare two elements of an unknown data type.
+- **How it works:** It casts the `const void *` pointers to double pointers (`const char **`), dereferences them to get the actual strings, and uses `strcmp()` to determine their alphabetical order (returning negative, zero, or positive integers).
+- **Why const void * arguments:** `qsort()` is a generic sorting function in C designed to sort *any* data type (integers, floats, structs, strings). By accepting `const void *`, it remains type-agnostic and can handle pointers to any memory location safely without modifying the original data.
