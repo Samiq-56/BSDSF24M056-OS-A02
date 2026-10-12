@@ -19,7 +19,6 @@ void do_ls(const char *dirname, int long_format, int horizontal_format) {
     int count = 0;
     int capacity = 10;
     
-    // Task 2: Dynamically allocate array of strings to gather all filenames
     char **filenames = malloc(capacity * sizeof(char *));
     if (filenames == NULL) {
         perror("malloc failed");
@@ -29,7 +28,6 @@ void do_ls(const char *dirname, int long_format, int horizontal_format) {
 
     size_t max_len = 0;
 
-    // Read all directory entries and track max length
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_name[0] == '.') {
             continue; // Skip hidden files for now
@@ -67,8 +65,8 @@ void do_ls(const char *dirname, int long_format, int horizontal_format) {
         return;
     }
 
-    // Task 3: Calculate Column Layout
-    int terminal_width = 80; // Default fallback width
+    // Calculate Terminal Width and Column Layout
+    int terminal_width = 80;
     struct winsize w;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0) {
         if (w.ws_col > 0) {
@@ -76,29 +74,46 @@ void do_ls(const char *dirname, int long_format, int horizontal_format) {
         }
     }
 
-    int spacing = 2; // Spacing between columns
+    int spacing = 2;
     int col_width = max_len + spacing;
     int num_cols = terminal_width / col_width;
     if (num_cols < 1) {
         num_cols = 1;
     }
 
-    int num_rows = (count + num_cols - 1) / num_cols;
-
-    // Task 4: Implement "Down Then Across" Printing
-    for (int r = 0; r < num_rows; r++) {
-        for (int c = 0; c < num_cols; c++) {
-            int index = c * num_rows + r;
-            if (index < count) {
-                if (c == num_cols - 1) {
-                    // Last column on the row doesn't need trailing padding
-                    printf("%s", filenames[index]);
-                } else {
-                    printf("%-*s", col_width, filenames[index]);
+    // Check which display mode is requested
+    if (horizontal_format) {
+        // Feature-4: Horizontal Column Display (-x Option)
+        int current_pos = 0;
+        for (int i = 0; i < count; i++) {
+            int print_len = printf("%-*s", col_width, filenames[i]);
+            current_pos += print_len;
+            
+            // If next item exceeds terminal width, wrap to next line
+            if (i < count - 1) {
+                if (current_pos + col_width > terminal_width) {
+                    printf("\n");
+                    current_pos = 0;
                 }
             }
         }
         printf("\n");
+    } else {
+        // Default: "Down Then Across" Column Display
+        int num_rows = (count + num_cols - 1) / num_cols;
+        for (int r = 0; r < num_rows; r++) {
+            for (int c = 0; c < num_cols; c++) {
+                int index = c * num_rows + r;
+                if (index < count) {
+                    if (c == num_cols - 1) {
+                        printf("%s", filenames[index]);
+                    } else {
+                        printf("%-*s", col_width, filenames[index]);
+                    }
+                }
+            }
+            printf("\n");
+        }
     }
 
     // Clean up allocated memory
@@ -113,6 +128,7 @@ int main(int argc, char *argv[]) {
     int long_format = 0;
     int horizontal_format = 0;
 
+    // Recognize -x option alongside -l
     while ((opt = getopt(argc, argv, "lx")) != -1) {
         switch (opt) {
             case 'l':
