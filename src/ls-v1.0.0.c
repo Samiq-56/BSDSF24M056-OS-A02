@@ -14,6 +14,9 @@
 #include <grp.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
+
+#define SPACING 2   /* spaces between columns */
 
 extern int errno;
 
@@ -61,29 +64,109 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+/* Terminal width via ioctl(TIOCGWINSZ); fall back to 80 if unavailable */
+static int get_terminal_width(void)
+{
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
+        return 80;
+    return ws.ws_col;
+}
+
+/* Print names in "down then across" order.
+ * Item in row r, column c is names[r + c * rows]. */
+static void print_columns(char **names, size_t count, size_t maxlen)
+{
+    int term_width = get_terminal_width();
+    size_t col_width = maxlen + SPACING;
+
+    size_t cols = (size_t)term_width / col_width;
+    if (cols == 0)
+        cols = 1;                            /* very long name */
+    size_t rows = (count + cols - 1) / cols; /* ceiling division */
+
+    for (size_t r = 0; r < rows; r++)
+    {
+        for (size_t c = 0; c < cols; c++)
+        {
+            size_t idx = r + c * rows;
+            if (idx >= count)
+                break;
+
+            /* pad only if another item follows in this row */
+            if (idx + rows < count)
+                printf("%-*s", (int)col_width, names[idx]);
+            else
+                printf("%s", names[idx]);
+        }
+        printf("\n");
+    }
+}
+
 void do_ls(const char *dir)
 {
-    struct dirent *entry;
     DIR *dp = opendir(dir);
     if (dp == NULL)
     {
         fprintf(stderr, "Cannot open directory : %s\n", dir);
         return;
     }
+
+    char **names = NULL;   /* dynamic array of filenames */
+    size_t count = 0;      /* how many names are stored */
+    size_t capacity = 0;   /* how many slots are allocated */
+    size_t maxlen = 0;     /* length of the longest filename */
+    int failed = 0;
+    struct dirent *entry;
+
     errno = 0;
     while ((entry = readdir(dp)) != NULL)
     {
         if (entry->d_name[0] == '.')
             continue;
-        printf("%s\n", entry->d_name);
+
+        /* array full: double its capacity (start with 16 slots) */
+        if (count == capacity)
+        {
+            size_t newcap = capacity ? capacity * 2 : 16;
+            char **tmp = realloc(names, newcap * sizeof(char *));
+            if (tmp == NULL)
+            {
+                perror("realloc failed");
+                failed = 1;
+                break;
+            }
+            names = tmp;
+            capacity = newcap;
+        }
+
+        /* store a private copy of the name */
+        names[count] = strdup(entry->d_name);
+        if (names[count] == NULL)
+        {
+            perror("strdup failed");
+            failed = 1;
+            break;
+        }
+
+        /* track the longest filename */
+        size_t len = strlen(names[count]);
+        if (len > maxlen)
+            maxlen = len;
+        count++;
     }
 
-    if (errno != 0)
-    {
+    if (!failed && errno != 0)
         perror("readdir failed");
-    }
 
     closedir(dp);
+
+    if (count > 0)
+        print_columns(names, count, maxlen);
+
+    for (size_t i = 0; i < count; i++)
+        free(names[i]);
+    free(names);
 }
 
 /* Convert st_mode into a string like "drwxr-xr-x" (str must hold 11 bytes) */
