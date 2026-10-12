@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 #include <pwd.h>
 #include <grp.h>
 #include <time.h>
@@ -31,7 +32,6 @@ void do_ls(const char *dirname, int long_format) {
 
     size_t max_len = 0;
 
-    // Read all directory entries and track max length
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_name[0] == '.') {
             continue; // Skip hidden files for now
@@ -100,11 +100,39 @@ void do_ls(const char *dirname, int long_format) {
             }
         }
     } else {
-        // Temporary verification print for Task 2
-        for (int i = 0; i < count; i++) {
-            printf("%s  ", filenames[i]);
+        // Task 3: Calculate Column Layout using ioctl and max_len
+        int terminal_width = 80; // Fallback width
+        struct winsize w;
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0) {
+            if (w.ws_col > 0) {
+                terminal_width = w.ws_col;
+            }
         }
-        printf("\n");
+
+        int spacing = 2; // Buffer spacing between columns
+        int col_width = max_len + spacing;
+        int num_cols = terminal_width / col_width;
+        if (num_cols < 1) {
+            num_cols = 1;
+        }
+
+        int num_rows = (count + num_cols - 1) / num_cols;
+
+        // Task 4: Implement "Down Then Across" Printing
+        for (int r = 0; r < num_rows; r++) {
+            for (int c = 0; c < num_cols; c++) {
+                int index = c * num_rows + r;
+                if (index < count) {
+                    if (c == num_cols - 1) {
+                        // Last column doesn't need trailing padding
+                        printf("%s", filenames[index]);
+                    } else {
+                        printf("%-*s", col_width, filenames[index]);
+                    }
+                }
+            }
+            printf("\n");
+        }
     }
 
     // Clean up allocated memory
