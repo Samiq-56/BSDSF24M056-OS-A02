@@ -1,4 +1,4 @@
-#include <stdio.h>
+k#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
@@ -15,6 +15,7 @@
 void print_long_format(const char *dirname, char **filenames, int count);
 void print_horizontal_format(char **filenames, int count, size_t max_len);
 void print_vertical_format(char **filenames, int count, size_t max_len);
+int compare_strings(const void *a, const void *b);
 
 void do_ls(const char *dirname, int long_format, int horizontal_format) {
     DIR *dir = opendir(dirname);
@@ -73,7 +74,10 @@ void do_ls(const char *dirname, int long_format, int horizontal_format) {
         return;
     }
 
-    // Integrate Display Modes (Task 4)
+    // Task 2: Sort filenames alphabetically using qsort
+    qsort(filenames, count, sizeof(char *), compare_strings);
+
+    // Task 3: Integrate Sorted Array into Display Modes
     if (long_format) {
         print_long_format(dirname, filenames, count);
     } else if (horizontal_format) {
@@ -86,6 +90,13 @@ void do_ls(const char *dirname, int long_format, int horizontal_format) {
         free(filenames[i]);
     }
     free(filenames);
+}
+
+// Comparison function for qsort (Task 2)
+int compare_strings(const void *a, const void *b) {
+    const char *str1 = *(const char **)a;
+    const char *str2 = *(const char **)b;
+    return strcmp(str1, str2);
 }
 
 // Long Listing Format (-l)
@@ -107,7 +118,7 @@ void print_long_format(const char *dirname, char **filenames, int count) {
             printf((file_stat.st_mode & S_IWOTH) ? "w" : "-");
             printf((file_stat.st_mode & S_IXOTH) ? "x" : "-");
 
-            printf(" %3ld", file_stat.st_nlink);
+            printf(" %3ld", (long)file_stat.st_nlink);
             struct passwd *pw = getpwuid(file_stat.st_uid);
             struct group *gr = getgrgid(file_stat.st_gid);
             printf(" %s  %s", (pw ? pw->pw_name : "unknown"), (gr ? gr->gr_name : "unknown"));
@@ -121,7 +132,7 @@ void print_long_format(const char *dirname, char **filenames, int count) {
     }
 }
 
-// Horizontal Display Logic (-x) (Task 3)
+// Horizontal Display Logic (-x)
 void print_horizontal_format(char **filenames, int count, size_t max_len) {
     int terminal_width = 80;
     struct winsize w;
@@ -136,8 +147,6 @@ void print_horizontal_format(char **filenames, int count, size_t max_len) {
     int current_pos = 0;
 
     for (int i = 0; i < count; i++) {
-        int len = strlen(filenames[i]);
-        // If printing this item exceeds terminal width, wrap to new line
         if (current_pos + col_width > terminal_width && current_pos > 0) {
             printf("\n");
             current_pos = 0;
@@ -192,7 +201,6 @@ int main(int argc, char *argv[]) {
     int long_format = 0;
     int horizontal_format = 0;
 
-    // Argument Parsing for -l and -x flags (Task 2)
     while ((opt = getopt(argc, argv, "lx")) != -1) {
         switch (opt) {
             case 'l':
