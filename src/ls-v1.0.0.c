@@ -11,10 +11,19 @@
 #include <time.h>
 #include <getopt.h>
 
+/* ANSI escape codes for colors */
+#define COLOR_RESET    "\033[0m"
+#define COLOR_BLUE     "\033[0;34m"   /* directories */
+#define COLOR_GREEN    "\033[0;32m"   /* executables */
+#define COLOR_RED      "\033[0;31m"   /* tarballs: .tar .gz .zip */
+#define COLOR_PINK     "\033[0;35m"   /* symbolic links */
+#define COLOR_REVERSE  "\033[7m"      /* special files (devices, sockets) */
+
 void print_long_format(const char *dirname, char **filenames, int count);
 void print_horizontal_format(char **filenames, int count, size_t max_len);
 void print_vertical_format(char **filenames, int count, size_t max_len);
 int compare_strings(const void *a, const void *b);
+void print_colored(const char *name, const char *color);
 
 void do_ls(const char *dirname, int long_format, int horizontal_format) {
     DIR *dir = opendir(dirname);
@@ -45,6 +54,13 @@ void do_ls(const char *dirname, int long_format, int horizontal_format) {
     else print_vertical_format(filenames, count, max_len);
     for (int i = 0; i < count; i++) free(filenames[i]);
     free(filenames);
+}
+
+/* Print a name wrapped in a color code, then reset the color.
+ * It prints the name only (no padding): the escape codes take no space on
+ * screen, so padding for columns must be added separately by the caller. */
+void print_colored(const char *name, const char *color) {
+    printf("%s%s%s", color, name, COLOR_RESET);
 }
 
 int compare_strings(const void *a, const void *b) {
